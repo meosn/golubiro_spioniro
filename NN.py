@@ -2,85 +2,85 @@ import numpy as np
 from PIL import Image
 import os
 
-def load_image(path, size=(32, 32)):
-    img = Image.open(path).convert('L')
-    img = img.resize(size)
-    return np.asarray(img, dtype=np.float32).flatten() / 255.0
+def preprocess_image(filepath, target_size=(32, 32)):
+    image = Image.open(filepath).convert('L')
+    image = image.resize(target_size)
+    return np.asarray(image, dtype=np.float32).flatten() / 255.0
 
-def load_dataset(csv_path, image_folder):
-    images = []
-    labels = []
+def read_data(csv_file, img_dir):
+    X_data = []
+    y_data = []
 
-    with open(csv_path, 'r') as f:
-        for line in f:
-            filename, label = line.strip().split(',')
-            path = os.path.join(image_folder, filename)
-            images.append(load_image(path))
-            labels.append(float(label))
+    with open(csv_file, 'r') as file:
+        for row in file:
+            img_name, label = row.strip().split(',')
+            img_path = os.path.join(img_dir, img_name)
+            X_data.append(preprocess_image(img_path))
+            y_data.append(float(label))
 
-    return np.array(images), np.array(labels).reshape(-1, 1)
+    return np.array(X_data), np.array(y_data).reshape(-1, 1)
 
-class SimpleNeuralNet:
-    def __init__(self, input_size, hidden_size):
-        self.W1 = np.random.randn(input_size, hidden_size) * 0.01
-        self.b1 = np.zeros((1, hidden_size))
-        self.W2 = np.random.randn(hidden_size, 1) * 0.01
-        self.b2 = np.zeros((1, 1))
+class CompactNet:
+    def __init__(self, n_inputs, n_hidden):
+        self.weights_input = np.random.randn(n_inputs, n_hidden) * 0.01
+        self.bias_input = np.zeros((1, n_hidden))
+        self.weights_output = np.random.randn(n_hidden, 1) * 0.01
+        self.bias_output = np.zeros((1, 1))
 
-    def sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
+    def _sigmoid(self, z):
+        return 1 / (1 + np.exp(-z))
 
-    def sigmoid_derivative(self, x):
-        return x * (1 - x)
+    def _sigmoid_grad(self, activated):
+        return activated * (1 - activated)
 
-    def tanh(self, x):
-        return np.tanh(x)
+    def _tanh(self, z):
+        return np.tanh(z)
 
-    def tanh_derivative(self, x):
-        return 1 - x ** 2
+    def _tanh_grad(self, activated):
+        return 1 - activated ** 2
 
-    def forward(self, X):
-        self.Z1 = np.dot(X, self.W1) + self.b1
-        self.A1 = self.sigmoid(self.Z1)
-        self.Z2 = np.dot(self.A1, self.W2) + self.b2
-        self.output = np.tanh(self.Z2)
-        return self.output
+    def run_forward(self, batch):
+        self.hidden_linear = np.dot(batch, self.weights_input) + self.bias_input
+        self.hidden_activated = self._sigmoid(self.hidden_linear)
+        self.output_linear = np.dot(self.hidden_activated, self.weights_output) + self.bias_output
+        self.final_output = self._tanh(self.output_linear)
+        return self.final_output
 
-    def compute_loss(self, y_true, y_pred):
-        return np.mean((y_true - y_pred) ** 2)
+    def mse_loss(self, target, prediction):
+        return np.mean((target - prediction) ** 2)
 
-    def backward(self, X, y_true, y_pred, learning_rate):
-        dZ2 = 2 * (y_pred - y_true) / y_true.shape[0]
-        dW2 = np.dot(self.A1.T, dZ2)
-        db2 = np.sum(dZ2, axis=0, keepdims=True)
+    def run_backward(self, batch, target, prediction, lr):
+        grad_output = 2 * (prediction - target) / target.shape[0]
+        grad_weights_out = np.dot(self.hidden_activated.T, grad_output)
+        grad_bias_out = np.sum(grad_output, axis=0, keepdims=True)
 
-        dA1 = np.dot(dZ2, self.W2.T)
-        dZ1 = dA1 * self.tanh_derivative(self.A1)
-        dW1 = np.dot(X.T, dZ1)
-        db1 = np.sum(dZ1, axis=0, keepdims=True)
+        grad_hidden = np.dot(grad_output, self.weights_output.T)
+        grad_hidden_linear = grad_hidden * self._tanh_grad(self.hidden_activated)
+        grad_weights_in = np.dot(batch.T, grad_hidden_linear)
+        grad_bias_in = np.sum(grad_hidden_linear, axis=0, keepdims=True)
 
-        self.W2 -= learning_rate * dW2
-        self.b2 -= learning_rate * db2
-        self.W1 -= learning_rate * dW1
-        self.b1 -= learning_rate * db1
+        self.weights_output -= lr * grad_weights_out
+        self.bias_output -= lr * grad_bias_out
+        self.weights_input -= lr * grad_weights_in
+        self.bias_input -= lr * grad_bias_in
 
-def train(model, X, y, epochs=1000, learning_rate=0.01):
-    for epoch in range(epochs):
-        y_pred = model.forward(X)
-        loss = model.compute_loss(y, y_pred)
-        model.backward(X, y, y_pred, learning_rate)
+def train_model(model, features, targets, num_epochs=1000, lr=0.01):
+    for epoch in range(num_epochs):
+        predictions = model.run_forward(features)
+        loss = model.mse_loss(targets, predictions)
+        model.run_backward(features, targets, predictions, lr)
 
         if epoch % 100 == 0:
-            print(f"Epoch {epoch}, Loss: {loss:.4f}")
+            print(f"Эпоха {epoch}, Ошибка: {loss:.4f}")
 
-def predict(model, image_path):
-    x = load_image(image_path).reshape(1, -1)
-    pred = model.forward(x)
-    print(f"Предсказанная компактность: {pred[0,0]:.3f}")
-    return f"{pred[0,0]:.3f}"
+def evaluate(model, img_file):
+    sample = preprocess_image(img_file).reshape(1, -1)
+    result = model.run_forward(sample)
+    print(f"Оценка компактности: {result[0,0]:.3f}")
+    return f"{result[0,0]:.3f}"
 
-def start(checking):
-    X, y = load_dataset('compic.csv', 'images')
-    net = SimpleNeuralNet(input_size=1024, hidden_size=64)
-    train(net, X, y, epochs=1000, learning_rate=0.01)
-    return predict(net, checking)
+def launch(test_image_path):
+    features, targets = read_data('compic.csv', 'images')
+    compact_estimator = CompactNet(n_inputs=1024, n_hidden=64)
+    train_model(compact_estimator, features, targets, num_epochs=1000, lr=0.01)
+    return evaluate(compact_estimator, test_image_path)
