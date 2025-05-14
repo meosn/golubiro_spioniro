@@ -6,7 +6,7 @@ import os
 from io import BytesIO
 import csv
 import NN
-token='7928522469:AAHDVmQ9qpxQpgAtrNkf2c62SWOHxjq03xY'
+token='token'
 bot = telebot.TeleBot(token)
 chek = False
 @bot.message_handler(commands=['start'])
